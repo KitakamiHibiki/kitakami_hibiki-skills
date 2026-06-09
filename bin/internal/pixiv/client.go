@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -126,7 +127,8 @@ func (c *Client) FetchIllustPages(illustID int) ([]string, error) {
 
 // DownloadIllust downloads all pages for an illust to the given directory.
 // Files are named {id}_{page}.{ext} (page starts at 0).
-// Returns the list of saved file paths.
+// Skips pages whose files already exist on disk.
+// Returns the list of saved (or already-present) file paths.
 func (c *Client) DownloadIllust(illust Illust, dir string) ([]string, error) {
 	if verbose {
 		fmt.Printf("[debug] fetching pages for illust #%d\n", illust.ID)
@@ -141,6 +143,14 @@ func (c *Client) DownloadIllust(illust Illust, dir string) ([]string, error) {
 	for pageIdx, imageURL := range pageURLs {
 		filename := fmt.Sprintf("%d_%03d%s", illust.ID, pageIdx, ext)
 		destPath := filepath.Join(dir, filename)
+
+		if _, err := os.Stat(destPath); err == nil {
+			if verbose {
+				fmt.Printf("[debug] skip (already exists): %s\n", filename)
+			}
+			saved = append(saved, destPath)
+			continue
+		}
 
 		if err := c.DownloadImage(imageURL, destPath); err != nil {
 			return saved, fmt.Errorf("download page %d: %w", pageIdx, err)
@@ -183,8 +193,177 @@ func (c *Client) VerifySession() (userID int, userName string, err error) {
 	return resp.Body.UserID, resp.Body.Name, nil
 }
 
-// FetchRecommended fetches recommended illustrations using the Pixiv web API.
-func (c *Client) FetchRecommended() (*IllustResponse, error) {
+// FetchRanking fetches the ranking of illustrations by mode.
+// Supported modes: daily, weekly, monthly, random.
+func (c *Client) FetchRanking(mode string) (*IllustResponse, error) {
+	switch mode {
+	case "daily", "weekly", "monthly":
+		return c.fetchRankingFromPHP(mode)
+	case "random":
+		return c.fetchRecommended()
+	default:
+		return nil, fmt.Errorf("unsupported mode: %q (use: daily, weekly, monthly, random)", mode)
+	}
+}
+
+// fetchRankingFromPHP fetches ranking data from the Pixiv ranking page.
+func (c *Client) fetchRankingFromPHP(mode string) (*IllustResponse, error) {
+	// Try the Ajax ranking endpoint (current Pixiv API).
+	path := fmt.Sprintf("/ajax/ranking/illust?mode=%s&content=illust", mode)
+	body, err := c.get(path)
+	if err == nil {
+		if verbose {
+			preview := string(body)
+			if len(preview) > 1000 {
+				preview = preview[:1000]
+			}
+			fmt.Printf("[debug] ranking JSON body:\n%s\n", preview)
+		}
+		var resp WebRankingResponse
+		if err := json.Unmarshal(body, &resp); err == nil && !resp.Error && len(resp.Body.Ranking) > 0 {
+			illusts := make([]Illust, len(resp.Body.Ranking))
+			for i, r := range resp.Body.Ranking {
+				illusts[i] = webRankingIllustToIllust(r)
+			}
+			return &IllustResponse{Illusts: illusts}, nil
+		}
+	}
+
+	// Fallback: parse the HTML page.
+	return c.fetchRankingFromHTML(mode)
+}
+
+// fetchRankingFromHTML parses the ranking page HTML for embedded illustration data.
+func (c *Client) fetchRankingFromHTML(mode string) (*IllustResponse, error) {
+	path := fmt.Sprintf("/ranking.php?mode=%s&content=illust", mode)
+	req, err := http.NewRequest("GET", apiBase+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Referer", "https://www.pixiv.net/")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("rank request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("rank request failed (HTTP %d)", resp.StatusCode)
+	}
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	return parseRankingHTML(raw)
+}
+
+// parseRankingHTML scans HTML for embedded ranking data.
+func parseRankingHTML(raw []byte) (*IllustResponse, error) {
+	html := string(raw)
+
+	// Try __NEXT_DATA__ (Next.js apps embed initial state here).
+	re := regexp.MustCompile(`<script id="__NEXT_DATA__"[^>]*>(.*?)</script>`)
+	if m := re.FindStringSubmatch(html); len(m) > 1 {
+		// Current format: pageProps.assign.contents
+		var nextData struct {
+			Props struct {
+				PageProps struct {
+					Assign struct {
+						Contents []WebRankingContent `json:"contents"`
+					} `json:"assign"`
+				} `json:"pageProps"`
+			} `json:"props"`
+		}
+		if err := json.Unmarshal([]byte(m[1]), &nextData); err == nil && len(nextData.Props.PageProps.Assign.Contents) > 0 {
+			illusts := make([]Illust, len(nextData.Props.PageProps.Assign.Contents))
+			for i, r := range nextData.Props.PageProps.Assign.Contents {
+				illusts[i] = webRankingContentToIllust(r)
+			}
+			return &IllustResponse{Illusts: illusts}, nil
+		}
+
+		// Older format (via rankingItems).
+		var nextDataOld struct {
+			Props struct {
+				PageProps struct {
+					RankingItems []WebRankingIllust `json:"rankingItems"`
+				} `json:"pageProps"`
+			} `json:"props"`
+		}
+		if err := json.Unmarshal([]byte(m[1]), &nextDataOld); err == nil && len(nextDataOld.Props.PageProps.RankingItems) > 0 {
+			illusts := make([]Illust, len(nextDataOld.Props.PageProps.RankingItems))
+			for i, r := range nextDataOld.Props.PageProps.RankingItems {
+				illusts[i] = webRankingIllustToIllust(r)
+			}
+			return &IllustResponse{Illusts: illusts}, nil
+		}
+	}
+
+	// Try pixiv.ranking.data (older Pixiv page format).
+	re = regexp.MustCompile(`pixiv\.ranking\.data\s*=\s*({.*?});`)
+	if m := re.FindStringSubmatch(html); len(m) > 1 {
+		var rankData struct {
+			Illusts []WebRankingIllust `json:"illusts"`
+		}
+		if err := json.Unmarshal([]byte(m[1]), &rankData); err == nil && len(rankData.Illusts) > 0 {
+			illusts := make([]Illust, len(rankData.Illusts))
+			for i, r := range rankData.Illusts {
+				illusts[i] = webRankingIllustToIllust(r)
+			}
+			return &IllustResponse{Illusts: illusts}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not find ranking data in the page")
+}
+
+// webRankingContentToIllust converts a WebRankingContent to the canonical Illust type.
+func webRankingContentToIllust(w WebRankingContent) Illust {
+	tags := make([]IllustTag, len(w.Tags))
+	for i, t := range w.Tags {
+		tags[i] = IllustTag{Name: t}
+	}
+
+	illustType := "illust"
+	switch w.IllustType {
+	case "1":
+		illustType = "manga"
+	case "2":
+		illustType = "ugoira"
+	}
+
+	pageCount, _ := strconv.Atoi(w.IllustPageCount)
+
+	return Illust{
+		ID:             w.IllustID,
+		Title:          w.Title,
+		Type:           illustType,
+		XRestrict:      w.IllustContentType.Sexual,
+		Width:          w.Width,
+		Height:         w.Height,
+		PageCount:      pageCount,
+		TotalBookmarks: w.RatingCount,
+		TotalView:      w.ViewCount,
+		User: IllustUser{
+			ID:   w.UserID,
+			Name: w.UserName,
+		},
+		Tags: tags,
+		ImageURLs: IllustImageURLs{
+			SquareMedium: w.URL,
+			Medium:       w.URL,
+			Large:        w.URL,
+		},
+	}
+}
+
+// fetchRecommended fetches recommended illustrations using the Pixiv web API.
+func (c *Client) fetchRecommended() (*IllustResponse, error) {
 	body, err := c.get("/ajax/top/illust?mode=all")
 	if err != nil {
 		return nil, fmt.Errorf("recommend request: %w", err)
@@ -225,6 +404,48 @@ func webIllustToIllust(w WebIllust) Illust {
 	}
 
 	id, _ := strconv.Atoi(w.ID)
+	userID, _ := strconv.Atoi(w.UserID)
+
+	return Illust{
+		ID:             id,
+		Title:          w.Title,
+		Type:           illustType,
+		XRestrict:      w.XRestrict,
+		Caption:        w.Description,
+		Width:          w.Width,
+		Height:         w.Height,
+		PageCount:      w.PageCount,
+		TotalBookmarks: w.BookmarkCount,
+		TotalView:      w.ViewCount,
+		User: IllustUser{
+			ID:   userID,
+			Name: w.UserName,
+		},
+		Tags: tags,
+		ImageURLs: IllustImageURLs{
+			SquareMedium: w.URLs.Small,
+			Medium:       w.URLs.Regular,
+			Large:        w.URLs.Original,
+		},
+	}
+}
+
+// webRankingIllustToIllust converts a ranking API illust to the canonical Illust type.
+func webRankingIllustToIllust(w WebRankingIllust) Illust {
+	tags := make([]IllustTag, len(w.Tags))
+	for i, t := range w.Tags {
+		tags[i] = IllustTag{Name: t}
+	}
+
+	illustType := "illust"
+	switch w.IllustType {
+	case 1:
+		illustType = "manga"
+	case 2:
+		illustType = "ugoira"
+	}
+
+	id, _ := strconv.Atoi(w.IllustID)
 	userID, _ := strconv.Atoi(w.UserID)
 
 	return Illust{

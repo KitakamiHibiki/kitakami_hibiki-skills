@@ -4,7 +4,7 @@ Search and download illustrations from Pixiv using the pixiv web API with PHPSES
 
 ## Usage
 
-Activate this skill when the user wants to browse or download Pixiv illustrations.
+Browse or download Pixiv illustrations. Use this when you need to search, view metadata, or download images from Pixiv.
 
 ### Prerequisites
 
@@ -15,20 +15,20 @@ The user needs a **PHPSESSID cookie** from their Pixiv login session:
 
 ### Authentication
 
-Before first use, ask the user to provide their PHPSESSID. Store it via the `skills-cli` config system:
+Before first use, ask the user to provide their PHPSESSID:
 
 ```bash
-cd bin && go run . pixiv login
+pixiv login
 ```
 
-The user will be prompted to paste their PHPSESSID. The tool verifies the session and saves it to `~/.kitakami_hibiki/config/pixiv.json`.
+The user will be prompted to paste their PHPSESSID. The tool verifies the session and saves it to the SQLite database (`~/.kitakami_hibiki/data.db`).
 
 Alternatively, set the `PIXIV_PHPSESSID` environment variable.
 
 ### Fetching and Downloading Recommended Illustrations
 
 ```bash
-cd bin && go run . pixiv recommand [flags]
+pixiv recommand [flags]
 ```
 
 Flags:
@@ -36,6 +36,7 @@ Flags:
 |------|---------|-------------|
 | `-limit` | `10` | Number of illustrations to fetch |
 | `-r18` | `0` | R18 filter: `0`=exclude, `1`=include all, `2`=only R18 |
+| `-mode` | `daily` | Ranking mode: daily, weekly, monthly, random |
 
 ### Output
 

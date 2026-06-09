@@ -1,82 +1,36 @@
 package pixiv
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
-	"skills/bin/internal/config"
+	"skills/bin/internal/db"
 )
 
-const configFileName = "pixiv.json"
+const configKeyPHPSESSID = "pixiv_phpsessid"
 
-// Config holds Pixiv credentials persisted to disk.
+// Config holds Pixiv credentials persisted to SQLite.
 type Config struct {
-	PHPSESSID string `json:"phpsessid"`
+	PHPSESSID string
 }
 
-// ConfigPath returns the full path to the config file.
-func ConfigPath() (string, error) {
-	return config.Path(configFileName)
-}
-
-// LoadConfig reads saved credentials from disk. Returns nil if no config exists.
+// LoadConfig reads saved credentials from SQLite. Returns nil if no config exists.
 func LoadConfig() (*Config, error) {
-	path, err := ConfigPath()
+	v, err := db.ConfigGet(configKeyPHPSESSID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load config: %w", err)
 	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("open config: %w", err)
+	if v == "" {
+		return nil, nil
 	}
-	defer f.Close()
-
-	var cfg Config
-	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-	return &cfg, nil
+	return &Config{PHPSESSID: v}, nil
 }
 
-// SaveConfig writes credentials to disk, creating directories as needed.
+// SaveConfig writes credentials to SQLite.
 func SaveConfig(cfg *Config) error {
-	if _, err := config.EnsureDir(); err != nil {
-		return err
-	}
-
-	path, err := ConfigPath()
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("create config file: %w", err)
-	}
-	defer f.Close()
-
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(cfg); err != nil {
-		return fmt.Errorf("write config: %w", err)
-	}
-
-	return nil
+	return db.ConfigSet(configKeyPHPSESSID, cfg.PHPSESSID)
 }
 
-// ClearConfig deletes the saved config file.
+// ClearConfig deletes the saved credentials from SQLite.
 func ClearConfig() error {
-	path, err := ConfigPath()
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove config: %w", err)
-	}
-	return nil
+	return db.ConfigDelete(configKeyPHPSESSID)
 }

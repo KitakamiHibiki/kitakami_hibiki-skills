@@ -102,6 +102,67 @@ type Illust struct {
 	ImageURLs      IllustImageURLs `json:"image_urls"`
 }
 
+// WebRankingIllust is a single entry in the daily ranking API response.
+type WebRankingIllust struct {
+	IllustID      string   `json:"illust_id"`
+	Title         string   `json:"title"`
+	IllustType    int      `json:"illust_type"`
+	XRestrict     int      `json:"x_restrict"`
+	Tags          []string `json:"tags"`
+	UserID        string   `json:"user_id"`
+	UserName      string   `json:"user_name"`
+	Width         int      `json:"width"`
+	Height        int      `json:"height"`
+	PageCount     int      `json:"page_count"`
+	BookmarkCount int      `json:"bookmark_count"`
+	ViewCount     int      `json:"view_count"`
+	LikeCount     int      `json:"like_count"`
+	Description   string   `json:"description"`
+	Rank          int      `json:"rank"`
+	URLs          struct {
+		Thumb    string `json:"thumb"`
+		Small    string `json:"small"`
+		Regular  string `json:"regular"`
+		Original string `json:"original"`
+	} `json:"urls"`
+	CreateDate string `json:"create_date"`
+}
+
+// WebRankingContent is a ranking entry from the current Pixiv Next.js page
+// embedded in __NEXT_DATA__ under pageProps.assign.contents.
+type WebRankingContent struct {
+	IllustID          int      `json:"illust_id"`
+	Title             string   `json:"title"`
+	Tags              []string `json:"tags"`
+	URL               string   `json:"url"`
+	IllustType        string   `json:"illust_type"`
+	IllustPageCount   string   `json:"illust_page_count"`
+	UserName          string   `json:"user_name"`
+	Width             int      `json:"width"`
+	Height            int      `json:"height"`
+	UserID            int      `json:"user_id"`
+	Rank              int      `json:"rank"`
+	RatingCount       int      `json:"rating_count"`
+	ViewCount         int      `json:"view_count"`
+	IllustUploadTS    int64    `json:"illust_upload_timestamp"`
+	IllustContentType struct {
+		Sexual int `json:"sexual"`
+	} `json:"illust_content_type"`
+}
+
+// WebRankingResponse represents the response from /ajax/ranking/illust.
+type WebRankingResponse struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+	Body    struct {
+		Ranking []WebRankingIllust `json:"ranking"`
+		Page    int                `json:"page"`
+		Total   int                `json:"total"`
+		Mode    string             `json:"mode"`
+		Content string             `json:"content"`
+	} `json:"body"`
+}
+
 // IllustResponse represents the API response for recommended illustrations.
 type IllustResponse struct {
 	Illusts []Illust `json:"illusts"`

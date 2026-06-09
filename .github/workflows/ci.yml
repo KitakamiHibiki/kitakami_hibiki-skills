@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    paths: ['bin/**']
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+    paths: ['bin/**']
+
+defaults:
+  run:
+    working-directory: bin
+
+jobs:
+  # ── CI check: runs on push/PR to main (non-tag) ──
+  check:
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        go: ['1.23']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: bin/go.sum
+      - run: go mod tidy
+      - run: go vet ./...
+      - name: Build all
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dir in */; do
+            if [ -f "${dir}main.go" ]; then
+              name="$(basename "$dir")"
+              echo "Building $name..."
+              go build "./${name}"
+            fi
+          done
+
+  # ── Release: runs only on tag push (v*) ──
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: bin/go.sum
+      - run: go mod tidy
+        working-directory: bin
+
+      - name: Build Linux amd64
+        working-directory: bin
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="${GITHUB_SHA::7}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-X skills/bin/internal/version.Version=${VERSION} -X skills/bin/internal/version.Commit=${COMMIT} -X skills/bin/internal/version.Date=${DATE}"
+
+          mkdir -p build/linux
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/linux/pixiv ./pixiv/
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/linux/wechat ./wechat/
+
+      - name: Build Windows amd64
+        working-directory: bin
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="${GITHUB_SHA::7}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-X skills/bin/internal/version.Version=${VERSION} -X skills/bin/internal/version.Commit=${COMMIT} -X skills/bin/internal/version.Date=${DATE}"
+
+          mkdir -p build/windows
+          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/windows/pixiv.exe ./pixiv/
+          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/windows/wechat.exe ./wechat/
+
+      - name: Package ZIPs
+        working-directory: bin
+        run: |
+          cd build
+          zip -r linux.zip linux/
+          zip -r windows.zip windows/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bin/build/*.zip
+          generate_release_notes: true

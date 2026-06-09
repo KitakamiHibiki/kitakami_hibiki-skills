@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"bufio"
@@ -8,32 +8,50 @@ import (
 	"strings"
 
 	"skills/bin/internal/config"
+	"skills/bin/internal/db"
 	"skills/bin/internal/pixiv"
+	"skills/bin/internal/version"
 )
 
-func runPixiv(args []string) {
-	fs := flag.NewFlagSet("pixiv", flag.ContinueOnError)
-	fs.Parse(args)
+func main() {
+	// 初始化 SQLite 数据库。
+	if _, err := db.Open(); err != nil {
+		fmt.Fprintf(os.Stderr, "error initializing database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
 
-	if fs.NArg() < 1 {
-		printPixivUsage()
+	// Pre-scan: check for -v / --verbose / --version anywhere in args.
+	verbose := false
+	for _, a := range os.Args {
+		if a == "-v" || a == "--verbose" {
+			verbose = true
+		}
+		if a == "--version" {
+			fmt.Println(version.Info())
+			return
+		}
+	}
+
+	if len(os.Args) < 2 {
+		printUsage()
 		return
 	}
 
-	switch fs.Arg(0) {
+	switch os.Args[1] {
 	case "login":
-		runPixivLogin(fs.Args()[1:])
+		runLogin(verbose, os.Args[2:])
 	case "recommand":
-		runPixivRecommand(fs.Args()[1:])
+		runRecommand(verbose, os.Args[2:])
 	case "help", "-h", "--help":
-		printPixivUsage()
+		printUsage()
 	default:
-		fmt.Printf("unknown pixiv subcommand: %q\n", fs.Arg(0))
+		fmt.Fprintf(os.Stderr, "unknown subcommand: %q\n", os.Args[1])
 		os.Exit(1)
 	}
 }
 
-func runPixivLogin(args []string) {
+func runLogin(verbose bool, args []string) {
 	_ = args // reserved for future flags
 
 	// Check if already logged in.
@@ -44,7 +62,7 @@ func runPixivLogin(args []string) {
 	}
 	if cfg != nil && cfg.PHPSESSID != "" {
 		fmt.Println("already logged in (PHPSESSID saved)")
-		fmt.Printf("run `%s pixiv login` again to re-authenticate\n", appName)
+		fmt.Println("run `pixiv login` again to re-authenticate")
 		return
 	}
 
@@ -94,16 +112,23 @@ func runPixivLogin(args []string) {
 		os.Exit(1)
 	}
 
-	path, _ := pixiv.ConfigPath()
 	fmt.Printf("login successful as %s (user ID: %d)\n", userName, userID)
-	fmt.Printf("config saved to %s\n", path)
 }
 
-func runPixivRecommand(args []string) {
-	fs := flag.NewFlagSet("pixiv recommand", flag.ContinueOnError)
+func runRecommand(verbose bool, args []string) {
+	fs := flag.NewFlagSet("recommand", flag.ContinueOnError)
 	limit := fs.Int("limit", 10, " number of illustrations to show")
 	r18 := fs.Int("r18", 0, " R18 filter: 0=exclude, 1=include, 2=only R18")
-	fs.Parse(args)
+	mode := fs.String("mode", "daily", " ranking mode: daily, weekly, monthly, random")
+
+	// Filter out -v/--verbose so flag.Parse doesn't reject them.
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		if a != "-v" && a != "--verbose" {
+			filtered = append(filtered, a)
+		}
+	}
+	fs.Parse(filtered)
 
 	phpsessid := os.Getenv("PIXIV_PHPSESSID")
 
@@ -115,7 +140,7 @@ func runPixivRecommand(args []string) {
 			os.Exit(1)
 		}
 		if cfg == nil || cfg.PHPSESSID == "" {
-			fmt.Fprintln(os.Stderr, "error: no credentials found. Run `skills-cli pixiv login` first or set PIXIV_PHPSESSID")
+			fmt.Fprintln(os.Stderr, "error: no credentials found. Run `pixiv login` first or set PIXIV_PHPSESSID")
 			os.Exit(1)
 		}
 		phpsessid = cfg.PHPSESSID
@@ -126,10 +151,10 @@ func runPixivRecommand(args []string) {
 
 	if verbose {
 		pixiv.SetVerbose(true)
-		fmt.Println("fetching recommended illustrations...")
+		fmt.Printf("fetching %s ranking...\n", *mode)
 	}
 
-	result, err := client.FetchRecommended()
+	result, err := client.FetchRanking(*mode)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fetch failed: %v\n", err)
 		os.Exit(1)
@@ -187,18 +212,41 @@ func runPixivRecommand(args []string) {
 		// Download all pages.
 		saved, err := client.DownloadIllust(illust, downloadDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  ⚠ download failed: %v\n\n", err)
+			fmt.Fprintf(os.Stderr, "  ! download failed: %v\n\n", err)
 		} else {
 			for _, p := range saved {
 				fmt.Printf("  Saved: %s\n", p)
 			}
 			fmt.Println()
 		}
+
+		// Record download to database.
+		tags := make([]string, len(illust.Tags))
+		for j, t := range illust.Tags {
+			tags[j] = t.Name
+		}
+		if recErr := db.InsertDownload(db.PixivDownload{
+			ID:             illust.ID,
+			Title:          illust.Title,
+			Type:           illust.Type,
+			XRestrict:      illust.XRestrict,
+			Caption:        illust.Caption,
+			Width:          illust.Width,
+			Height:         illust.Height,
+			PageCount:      illust.PageCount,
+			TotalBookmarks: illust.TotalBookmarks,
+			TotalView:      illust.TotalView,
+			ArtistID:       illust.User.ID,
+			ArtistName:     illust.User.Name,
+			Tags:           strings.Join(tags, ","),
+		}); recErr != nil && verbose {
+			fmt.Printf("  ! failed to record download: %v\n", recErr)
+		}
 	}
 }
 
-func printPixivUsage() {
-	fmt.Printf("Usage: %s pixiv <subcommand> [flags]\n", appName)
+func printUsage() {
+	fmt.Println("Usage: pixiv <subcommand> [flags]")
 	fmt.Println()
 	fmt.Println("Subcommands:")
 	fmt.Println("  login        save Pixiv PHPSESSID cookie")
@@ -206,15 +254,20 @@ func printPixivUsage() {
 	fmt.Println("  help         show this help")
 	fmt.Println()
 	fmt.Println("Flags (recommand):")
+	fmt.Println("  -mode        ranking mode: daily, weekly, monthly, random (default \"daily\")")
 	fmt.Println("  -limit       number of illustrations to show (default 10)")
 	fmt.Println("  -r18         0=exclude R18, 1=include all, 2=only R18 (default 0)")
 	fmt.Println()
+	fmt.Println("Global flags:")
+	fmt.Println("  -v, --verbose              verbose output")
+	fmt.Println("  --version                  show version")
+	fmt.Println()
 	fmt.Println("Config:")
-	fmt.Println("  PHPSESSID is saved to ~/.kitakami_hibiki/config/pixiv.json")
+	fmt.Println("  Credentials are saved to SQLite database (~/.kitakami_hibiki/data.db)")
 	fmt.Println("  Environment variable PIXIV_PHPSESSID takes priority over config")
 	fmt.Println()
 	fmt.Println("How to get PHPSESSID:")
 	fmt.Println("  1. Log in to https://www.pixiv.net/ in your browser")
-	fmt.Println("  2. Open DevTools (F12) → Application → Cookies → pixiv.net")
+	fmt.Println("  2. Open DevTools (F12) -> Application -> Cookies -> pixiv.net")
 	fmt.Println("  3. Copy the value of the 'PHPSESSID' cookie")
 }

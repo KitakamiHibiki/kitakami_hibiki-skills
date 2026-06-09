@@ -1,10 +1,15 @@
 # Go build outputs
 bin/build/
-bin/skills-cli
-bin/skills-cli.exe
-bin/skills-cli-linux
 
-# Go IDE
+# Built binaries (from go build ./name/)
+bin/pixiv.exe
+bin/pixiv/pixiv
+bin/pixiv/pixiv.exe
+bin/wechat.exe
+bin/wechat/wechat
+bin/wechat/wechat.exe
+
+# IDE
 .idea/
 .vscode/
 *.swp
