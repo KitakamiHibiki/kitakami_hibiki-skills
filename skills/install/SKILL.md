@@ -1,100 +1,109 @@
 # install
 
-Build and install the CLI tools (`pixiv`, `wechat`) from source, then configure the system PATH.
+Download the pre-built CLI tools (`pixiv`, `wechat`) from GitHub Releases and configure the system PATH.
 
 ## Overview
 
-This skill compiles the Go source code into standalone executables and makes them
-available system-wide. After installation, the `pixiv` and `wechat` commands are
-accessible from any directory.
+This skill downloads the appropriate binary archive for your operating system and
+architecture from the latest GitHub Release, extracts it to `~/.local/bin`, and
+ensures that directory is on your PATH. After installation, the `pixiv` and
+`wechat` commands are accessible from any directory.
+
+No Go toolchain or compiler is required.
 
 ## Prerequisites
 
-- Go 1.23+ installed and `go` available on PATH
-- Git (to clone or pull the latest source)
+- Internet access (to reach GitHub Releases)
+- `curl` (Linux / macOS) or `curl` / `powershell` (Windows)
+- `unzip` (Linux / macOS) — pre-installed on most systems
 
 ## Workflow
 
-### Step 1 — Clone or Pull Latest Source
+### Step 1 — Determine OS and Architecture
+
+The release ZIPs follow the naming convention:
+`skills-<version>-<os>-<arch>.zip`
+
+Supported combinations:
+
+| OS      | Arch        | Suffix               |
+|---------|-------------|----------------------|
+| Linux   | amd64       | `linux-amd64`        |
+| Windows | amd64       | `windows-amd64`      |
+| macOS   | amd64 (Intel) | `darwin-amd64`     |
+| macOS   | arm64 (Apple Silicon) | `darwin-arm64` |
+
+### Step 2 — Fetch the Latest Release
+
+Use the GitHub API to get the latest release tag:
 
 ```bash
-git clone <repo-url>          # first time
-git pull                      # subsequent updates
+REPO="KitakamiHibiki/kitakami_hibiki-skills"
+LATEST=$(curl -sSfL "https://api.github.com/repos/$REPO/releases/latest" \
+  | grep '"tag_name":' | cut -d'"' -f4)
+echo "Latest release: $LATEST"
 ```
 
-Then change to the project root and enter the `bin/` directory where `go.mod` lives.
+### Step 3 — Download and Extract
 
-### Step 2 — Build Binaries
-
-Build all CLI tools:
+**Linux / macOS:**
 
 ```bash
-cd bin
-go mod tidy
-go build ./pixiv/
-go build ./wechat/
-```
+# Auto-detect platform
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)  ARCH="amd64" ;;
+  aarch64) ARCH="arm64"  ;;
+esac
 
-This produces:
-- `pixiv` (or `pixiv.exe` on Windows)
-- `wechat` (or `wechat.exe` on Windows)
+# Build download URL
+URL="https://github.com/$REPO/releases/download/$LATEST/skills-${LATEST#v}-${OS}-${ARCH}.zip"
 
-in the current directory.
-
-Alternatively, use the build script which outputs to `bin/build/` and
-cross-compiles for both Windows and Linux:
-
-```bash
-# Windows
-bin\script\build.bat
-
-# Linux / macOS
-bash bin/script/build.sh
-```
-
-### Step 3 — Install to PATH
-
-Copy the binaries to a directory that's on the system PATH.
-
-**Option A — User-local bin directory** (recommended):
-
-```bash
-# Linux / macOS
+# Download, extract, and install
 mkdir -p ~/.local/bin
-cp bin/build/* ~/.local/bin/
-# Verify ~/.local/bin is in PATH; add to ~/.bashrc if not:
-# export PATH="$HOME/.local/bin:$PATH"
+curl -sSfL "$URL" -o /tmp/skills.zip
+unzip -o -q /tmp/skills.zip -d ~/.local/bin/
+rm /tmp/skills.zip
+chmod +x ~/.local/bin/pixiv ~/.local/bin/wechat
+
+# Add to PATH if not already present
+case :$PATH: in
+  *:$HOME/.local/bin:*) ;;
+  *) echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+     echo "Added ~/.local/bin to PATH in ~/.bashrc — restart your shell or run:"
+     echo "  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+esac
 ```
 
-```cmd
-:: Windows
-mkdir %USERPROFILE%\.local\bin
-copy bin\build\*.exe %USERPROFILE%\.local\bin\
-:: Add %USERPROFILE%\.local\bin to PATH via System Environment Variables
-```
+**Windows (PowerShell):**
 
-**Option B — System-wide** (requires admin / sudo):
+```powershell
+# Detect platform
+$arch = "amd64"
+$os = "windows"
 
-```bash
-# Linux / macOS
-sudo cp bin/build/pixiv bin/build/wechat /usr/local/bin/
-```
+# Get latest release tag
+$repo = "KitakamiHibiki/kitakami_hibiki-skills"
+$latest = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name
+$ver = $latest -replace '^v', ''
 
-```cmd
-:: Windows (run as Administrator)
-copy bin\build\pixiv.exe bin\build\wechat.exe C:\Windows\System32\
-```
+# Download and extract
+$url = "https://github.com/$repo/releases/download/$latest/skills-$ver-$os-$arch.zip"
+$zip = "$env:TEMP\skills.zip"
+Invoke-WebRequest -Uri $url -OutFile $zip
 
-**Option C — Keep in-place and add to PATH**:
+$installDir = "$env:USERPROFILE\.local\bin"
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+Expand-Archive -Path $zip -DestinationPath $installDir -Force
+Remove-Item $zip
 
-```bash
-# Add the build output directory directly to PATH:
-export PATH="$PATH:/path/to/Skills/bin/build"
-```
-
-```cmd
-:: Windows
-set PATH=%PATH%;D:\path\to\Skills\bin\build
+# Add to PATH
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($currentPath -notlike "*$installDir*") {
+  [Environment]::SetEnvironmentVariable("Path", "$currentPath;$installDir", "User")
+  Write-Host "Added $installDir to user PATH — restart your terminal."
+}
 ```
 
 ### Step 4 — Verify Installation
@@ -105,6 +114,11 @@ wechat help
 ```
 
 Both commands should print their usage information.
+
+## Updating
+
+To update to the latest release, simply repeat Steps 2–4. The new binaries will
+overwrite the old ones in `~/.local/bin`.
 
 ## Post-Installation
 
@@ -122,7 +136,8 @@ wechat login
 
 | Step | Error | Likely Cause | Resolution |
 |------|-------|-------------|------------|
-| 2 | `go: command not found` | Go not installed | Install Go 1.23+ from https://go.dev |
-| 2 | build fails | Outdated dependencies | Run `go mod tidy` first |
-| 3 | `cp: permission denied` | Insufficient privileges | Use Option A (user-local) instead of system-wide |
+| 2 | `curl: command not found` | curl not installed | Install curl, or use `wget` / `Invoke-WebRequest` |
+| 2 | `unzip: command not found` | unzip not installed | Install unzip (`apt install unzip`, `brew install unzip`) |
+| 3 | `404` or download fails | Platform not supported | Check supported platforms in Step 1; run on amd64 Linux/Windows/macOS |
+| 3 | `No releases found` | No tags pushed yet | Push a version tag (`git tag v0.1.0 && git push --tags`) to trigger a release build |
 | 4 | `command not found` | Install dir not on PATH | Add the directory to PATH and restart shell |

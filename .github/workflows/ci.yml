@@ -58,39 +58,46 @@ jobs:
       - run: go mod tidy
         working-directory: bin
 
-      - name: Build Linux amd64
+      - name: Build all platforms
         working-directory: bin
         run: |
+          set -euo pipefail
+
           VERSION="${GITHUB_REF_NAME#v}"
           COMMIT="${GITHUB_SHA::7}"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           LDFLAGS="-X skills/bin/internal/version.Version=${VERSION} -X skills/bin/internal/version.Commit=${COMMIT} -X skills/bin/internal/version.Date=${DATE}"
 
-          mkdir -p build/linux
-          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/linux/pixiv ./pixiv/
-          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/linux/wechat ./wechat/
+          mkdir -p build/artifacts
 
-      - name: Build Windows amd64
-        working-directory: bin
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          COMMIT="${GITHUB_SHA::7}"
-          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          LDFLAGS="-X skills/bin/internal/version.Version=${VERSION} -X skills/bin/internal/version.Commit=${COMMIT} -X skills/bin/internal/version.Date=${DATE}"
+          build() {
+            local os="$1" arch="$2" ext="$3"
+            local dir="build/artifacts/skills-${VERSION}-${os}-${arch}"
+            mkdir -p "$dir"
+            GOOS="$os" GOARCH="$arch" go build -ldflags "$LDFLAGS" -o "${dir}/pixiv${ext}" ./pixiv/
+            GOOS="$os" GOARCH="$arch" go build -ldflags "$LDFLAGS" -o "${dir}/wechat${ext}" ./wechat/
+          }
 
-          mkdir -p build/windows
-          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/windows/pixiv.exe ./pixiv/
-          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/windows/wechat.exe ./wechat/
+          build linux   amd64   ""
+          build windows amd64   ".exe"
+          build darwin  amd64   ""
+          build darwin  arm64   ""
 
       - name: Package ZIPs
         working-directory: bin
         run: |
-          cd build
-          zip -r linux.zip linux/
-          zip -r windows.zip windows/
+          cd build/artifacts
+          for d in skills-*; do
+            zip -j "${d}.zip" "$d"/*
+          done
+
+      - name: Stage install-skill.md
+        run: cp skills/install/SKILL.md bin/build/artifacts/install-skill.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: bin/build/*.zip
+          files: |
+            bin/build/artifacts/skills-*.zip
+            bin/build/artifacts/install-skill.md
           overwrite_files: true
