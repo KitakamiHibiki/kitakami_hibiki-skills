@@ -34,11 +34,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p /tmp/skills-build
           for dir in */; do
             if [ -f "${dir}main.go" ]; then
               name="$(basename "$dir")"
               echo "Building $name..."
-              go build "./${name}"
+              go build -o /tmp/skills-build "./${name}"
             fi
           done
 
