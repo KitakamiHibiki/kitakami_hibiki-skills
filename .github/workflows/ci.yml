@@ -92,6 +92,7 @@ jobs:
           done
 
       - name: Stage install-skill.md
+        working-directory: ${{ github.workspace }}
         run: cp skills/install/SKILL.md bin/build/artifacts/install-skill.md
 
       - name: Create Release
