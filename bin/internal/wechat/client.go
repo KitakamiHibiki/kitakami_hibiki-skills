@@ -31,7 +31,7 @@ type Client struct {
 	tokenExpAt time.Time
 }
 
-// NewClient 创建微信 API 客户端。
+// NewClient 创建微信公众平台 API 客户端。
 func NewClient() *Client {
 	transport := &http.Transport{
 		Proxy: proxy.ProxyFromEnvironment(),
@@ -197,7 +197,7 @@ func (c *Client) postForm(path, fieldName, filePath string) ([]byte, error) {
 	return body, nil
 }
 
-// checkError 检查微信 API 响应中是否有错误。
+// checkError 检查微信公众平台 API 响应中是否有错误。
 func checkError(body []byte) error {
 	var e ErrorResponse
 	if err := json.Unmarshal(body, &e); err != nil {

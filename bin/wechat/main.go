@@ -76,7 +76,10 @@ func printUsage() {
 	fmt.Println("  draft delete <media_id>      delete draft")
 	fmt.Println("  publish submit <media_id>    submit draft for publishing")
 	fmt.Println("  publish list                 list published articles")
+	fmt.Println("  publish get <article_id>     show published article detail")
+	fmt.Println("  publish delete <article_id>  delete published article")
 	fmt.Println("  media upload <file>          upload image, returns URL")
+	fmt.Println("  media thumb <file>           upload thumbnail, returns media_id")
 	fmt.Println()
 	fmt.Println("Global flags:")
 	fmt.Println("  -v, --verbose                verbose output")
@@ -288,7 +291,7 @@ func runDraftDelete(verbose bool, client *wechat.Client, args []string) {
 
 func runPublish(verbose bool, args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: wechat publish <submit|list> [args]")
+		fmt.Fprintln(os.Stderr, "usage: wechat publish <submit|list|get|delete> [args]")
 		os.Exit(1)
 	}
 
@@ -299,6 +302,10 @@ func runPublish(verbose bool, args []string) {
 		runPublishSubmit(verbose, client, args[1:])
 	case "list":
 		runPublishList(verbose, client, args[1:])
+	case "get":
+		runPublishGet(verbose, client, args[1:])
+	case "delete":
+		runPublishDelete(verbose, client, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown publish subcommand: %q\n", args[0])
 		os.Exit(1)
@@ -350,11 +357,58 @@ func runPublishList(verbose bool, client *wechat.Client, args []string) {
 	}
 }
 
+func runPublishGet(verbose bool, client *wechat.Client, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: wechat publish get <article_id>")
+		os.Exit(1)
+	}
+
+	articleID := args[0]
+	if verbose {
+		fmt.Printf("fetching published article %s...\n", articleID)
+	}
+
+	resp, err := client.GetPublished(articleID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "get published article failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	for i, article := range resp.NewsItem {
+		if i > 0 {
+			fmt.Println("---")
+		}
+		fmt.Printf("Article #%d:\n", i+1)
+		fmt.Printf("  Title:  %s\n", article.Title)
+		fmt.Printf("  Digest: %s\n", article.Digest)
+		fmt.Printf("  URL:    %s\n", article.URL)
+	}
+}
+
+func runPublishDelete(verbose bool, client *wechat.Client, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: wechat publish delete <article_id>")
+		os.Exit(1)
+	}
+
+	articleID := args[0]
+	if verbose {
+		fmt.Printf("deleting published article %s...\n", articleID)
+	}
+
+	if err := client.DeletePublished(articleID); err != nil {
+		fmt.Fprintf(os.Stderr, "delete failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("article deleted")
+}
+
 // --- media ---
 
 func runMedia(verbose bool, args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: wechat media upload <file>")
+		fmt.Fprintln(os.Stderr, "usage: wechat media <upload|thumb> [args]")
 		os.Exit(1)
 	}
 
@@ -363,6 +417,8 @@ func runMedia(verbose bool, args []string) {
 	switch args[0] {
 	case "upload":
 		runMediaUpload(verbose, client, args[1:])
+	case "thumb":
+		runMediaThumb(verbose, client, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown media subcommand: %q\n", args[0])
 		os.Exit(1)
@@ -392,6 +448,31 @@ func runMediaUpload(verbose bool, client *wechat.Client, args []string) {
 	}
 
 	fmt.Printf("image URL: %s\n", url)
+}
+
+func runMediaThumb(verbose bool, client *wechat.Client, args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: wechat media thumb <file>")
+		os.Exit(1)
+	}
+
+	filePath := args[0]
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "file not found: %s\n", filePath)
+		os.Exit(1)
+	}
+
+	if verbose {
+		fmt.Printf("uploading thumbnail %s...\n", filePath)
+	}
+
+	mediaID, err := client.UploadThumb(filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "upload failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("thumb media_id: %s\n", mediaID)
 }
 
 // --- helpers ---

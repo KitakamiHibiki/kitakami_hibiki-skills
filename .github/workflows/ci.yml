@@ -91,6 +91,13 @@ jobs:
             zip -j "${d}.zip" "$d"/*
           done
 
+      - name: Package skills definitions
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p bin/build/artifacts
+          cd skills
+          zip -r "${{ github.workspace }}/bin/build/artifacts/skills-definitions.zip" ./ -x "install/*" -x "update/*"
+
       - name: Stage install-skill.md
         working-directory: ${{ github.workspace }}
         run: cp skills/install/SKILL.md bin/build/artifacts/install-skill.md
@@ -100,5 +107,6 @@ jobs:
         with:
           files: |
             bin/build/artifacts/skills-*.zip
+            bin/build/artifacts/skills-definitions.zip
             bin/build/artifacts/install-skill.md
           overwrite_files: true

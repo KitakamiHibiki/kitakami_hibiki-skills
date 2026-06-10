@@ -1,13 +1,13 @@
 # install
 
-Download the pre-built CLI tools (`pixiv`, `wechat`) from GitHub Releases and configure the system PATH.
+Download the pre-built CLI tools (`pixiv`, `wechat`) and skill definitions from GitHub Releases, then install them to the appropriate directories.
 
 ## Overview
 
-This skill downloads the appropriate binary archive for your operating system and
-architecture from the latest GitHub Release, extracts it to `~/.local/bin`, and
-ensures that directory is on your PATH. After installation, the `pixiv` and
-`wechat` commands are accessible from any directory.
+This skill downloads two artifacts from the latest GitHub Release:
+
+1. **Binary archive** — platform-specific ZIP containing `pixiv` and `wechat` CLI tools, extracted to `~/.local/bin` and added to PATH.
+2. **Skills definitions** — `skills-definitions.zip` containing all skill `.md` files, extracted to the agent's own skill directory.
 
 No Go toolchain or compiler is required.
 
@@ -16,6 +16,7 @@ No Go toolchain or compiler is required.
 - Internet access (to reach GitHub Releases)
 - `curl` (Linux / macOS) or `curl` / `powershell` (Windows)
 - `unzip` (Linux / macOS) — pre-installed on most systems
+- Know your agent's skill directory path (denoted as `{SKILL_DIR}` below)
 
 ## Workflow
 
@@ -44,7 +45,7 @@ LATEST=$(curl -sSfL "https://api.github.com/repos/$REPO/releases/latest" \
 echo "Latest release: $LATEST"
 ```
 
-### Step 3 — Download and Extract
+### Step 3 — Download and Install CLI Tools
 
 **Linux / macOS:**
 
@@ -106,19 +107,53 @@ if ($currentPath -notlike "*$installDir*") {
 }
 ```
 
-### Step 4 — Verify Installation
+### Step 4 — Download and Install Skill Definitions
+
+Download `skills-definitions.zip` and extract it to your agent's skill directory (`{SKILL_DIR}`). Replace `{SKILL_DIR}` with the actual path where your agent loads skills from (e.g. `~/.kitakami_hibiki/skills`, `~/.myagent/skills`, or a project-relative path).
+
+**Linux / macOS:**
+
+```bash
+SKILL_DIR="{SKILL_DIR}"   # ← replace with your agent's skill directory
+
+# Download skills definitions
+SKILLS_URL="https://github.com/$REPO/releases/download/$LATEST/skills-definitions.zip"
+curl -sSfL "$SKILLS_URL" -o /tmp/skills-definitions.zip
+
+# Extract to skill directory
+mkdir -p "$SKILL_DIR"
+unzip -o -q /tmp/skills-definitions.zip -d "$SKILL_DIR"
+rm /tmp/skills-definitions.zip
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$skillDir = "{SKILL_DIR}"   # ← replace with your agent's skill directory
+
+# Download skills definitions
+$skillsUrl = "https://github.com/$repo/releases/download/$latest/skills-definitions.zip"
+$skillsZip = "$env:TEMP\skills-definitions.zip"
+Invoke-WebRequest -Uri $skillsUrl -OutFile $skillsZip
+
+# Extract to skill directory
+New-Item -ItemType Directory -Force -Path $skillDir | Out-Null
+Expand-Archive -Path $skillsZip -DestinationPath $skillDir -Force
+Remove-Item $skillsZip
+```
+
+### Step 5 — Verify Installation
 
 ```bash
 pixiv help
 wechat help
 ```
 
-Both commands should print their usage information.
+Both commands should print their usage information. Also verify that the skill `.md` files are present in `{SKILL_DIR}`.
 
 ## Updating
 
-To update to the latest release, simply repeat Steps 2–4. The new binaries will
-overwrite the old ones in `~/.local/bin`.
+To update to the latest release, repeat Steps 2–5. New binaries will overwrite old ones in `~/.local/bin`, and new skill definitions will overwrite old ones in `{SKILL_DIR}`.
 
 ## Post-Installation
 
@@ -141,3 +176,4 @@ wechat login
 | 3 | `404` or download fails | Platform not supported | Check supported platforms in Step 1; run on amd64 Linux/Windows/macOS |
 | 3 | `No releases found` | No tags pushed yet | Push a version tag (`git tag v0.1.0 && git push --tags`) to trigger a release build |
 | 4 | `command not found` | Install dir not on PATH | Add the directory to PATH and restart shell |
+| 4 | `404` on skills-definitions.zip | Release was built before this zip was added | Use a newer release tag |

@@ -9,6 +9,7 @@ const (
 	publishSubmitPath = "/cgi-bin/freepublish/submit"
 	publishListPath   = "/cgi-bin/freepublish/batchget"
 	publishGetPath    = "/cgi-bin/freepublish/get"
+	publishDeletePath = "/cgi-bin/freepublish/delete"
 )
 
 // SubmitPublish 提交发布草稿。draftID 为草稿的 media_id。
@@ -57,4 +58,10 @@ func (c *Client) GetPublished(articleID string) (*PublishGetResponse, error) {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &resp, nil
+}
+
+// DeletePublished 删除已发布文章。
+func (c *Client) DeletePublished(articleID string) error {
+	_, err := c.postJSON(publishDeletePath+"?", PublishDeleteRequest{ArticleID: articleID})
+	return err
 }

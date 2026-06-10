@@ -67,6 +67,8 @@ Build a WeChat-friendly HTML article with the following structure:
   - Illustration title as heading
   - Artist name, tags, view/bookmark counts
   - A "查看原图" link pointing to the Pixiv artwork URL
+- After all illustration sections, append a disclaimer block with:
+  - **声明：** 本文内容由AI自动生成，仅供预览。所有图片及资源均来源于互联网，如有侵权请联系删除。
 - Wrap `<img>` tags with `<span style="width:100%;display:block;">` for responsive layout
 - Use `<p>` for text content
 

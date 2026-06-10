@@ -115,4 +115,4 @@ Each directory under `skills/` documents a specific capability provided by the C
 |--------------------|---------------------------------------------------------------|
 | install            | Build and install CLI tools, configure PATH                   |
 | pixiv-search       | Search and download Pixiv illustrations (PHPSESSID auth)      |
-| pixiv-wechat-push  | Fetch Pixiv daily picks → generate → publish WeChat article   |
+| pixiv-wechat-push  | Fetch Pixiv daily picks → generate → publish WeChat Official Account article   |

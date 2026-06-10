@@ -2,7 +2,7 @@ package wechat
 
 // --- 通用 ---
 
-// ErrorResponse 微信 API 通用错误响应。
+// ErrorResponse 微信公众平台 API 通用错误响应。
 type ErrorResponse struct {
 	ErrCode int    `json:"errcode"`
 	ErrMsg  string `json:"errmsg"`
@@ -115,6 +115,16 @@ type PublishGetResponse struct {
 	NewsItem []PublishedArticle `json:"news_item"`
 }
 
+// PublishDeleteRequest 删除已发布文章请求体。
+type PublishDeleteRequest struct {
+	ArticleID string `json:"article_id"`
+}
+
+// PublishDeleteResponse 删除已发布文章响应。
+type PublishDeleteResponse struct {
+	ErrorResponse
+}
+
 // --- 素材 ---
 
 // MediaUploadResponse 上传图片响应。
@@ -124,4 +134,11 @@ type MediaUploadResponse struct {
 	MediaID  string `json:"media_id"`  // 上传永久素材时返回
 	Item     string `json:"item"`      // uploadimg 返回的 url
 	ThumbURL string `json:"thumb_url"`
+}
+
+// MaterialAddResponse 新增永久素材响应（用于上传缩略图）。
+type MaterialAddResponse struct {
+	ErrorResponse
+	MediaID string `json:"media_id"`
+	URL     string `json:"url"` // 新增图文素材时返回
 }
